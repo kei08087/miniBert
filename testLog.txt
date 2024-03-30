@@ -46,3 +46,16 @@ CFIMDB 0.596
 
 Seems like lr and batch is critical to SST and hdp is critical to CFIMDB. But lr does not effect a lot in CFIMDB and hdp dos not on SST. Batch on CFIMDB is unable to define because it is blocked to change them.
 
+Acc in 5 epoch 64 batch hdp 0.2 pre lr 1e-5
+
+SST: 0.299
+CFIMDB: 0.514
+
+SST keeps improving while the epoch. So maybe there is possible chance for better result in more epoch.
+
+Acc in 20 epoch 64 batch hdp 0.15 pre lr 1e-5
+
+SST: 0.302
+CFIMDB: 0.522
+
+Nope. abandon it.
