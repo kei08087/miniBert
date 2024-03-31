@@ -59,3 +59,8 @@ SST: 0.302
 CFIMDB: 0.522
 
 Nope. abandon it.
+
+Acc in 5 epoch 64 batch hdp 0.15 pre lr 1e-3
+
+SST: 0.320
+CFIMDB: 0.633

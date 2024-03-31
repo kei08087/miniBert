@@ -46,12 +46,16 @@ class MultitaskBERT(nn.Module):
         # You will want to add layers here to perform the downstream tasks.
         # Pretrain mode does not require updating bert paramters.
         self.bert = BertModel.from_pretrained('bert-base-uncased')
+        self.num_labels = config.num_labels
         for param in self.bert.parameters():
             if config.option == 'pretrain':
                 param.requires_grad = False
             elif config.option == 'finetune':
                 param.requires_grad = True
         ### TODO
+        self.sentiment = torch.nn.Linear(BERT_HIDDEN_SIZE, N_SENTIMENT_CLASSES)
+        self.paraphrase = torch.nn.Linear(BERT_HIDDEN_SIZE, 2)
+        self.similarity = torch.nn.Linear(BERT_HIDDEN_SIZE, 6)
         raise NotImplementedError
 
 
@@ -62,6 +66,7 @@ class MultitaskBERT(nn.Module):
         # When thinking of improvements, you can later try modifying this
         # (e.g., by adding other layers).
         ### TODO
+        
         raise NotImplementedError
 
 
@@ -72,7 +77,11 @@ class MultitaskBERT(nn.Module):
         Thus, your output should contain 5 logits for each sentence.
         '''
         ### TODO
-        raise NotImplementedError
+        outputs = self.bert(input_ids, attention_mask)
+        outputs = outputs['pooler_output']
+        final = self.sentiment(outputs)
+        return final
+        #raise NotImplementedError
 
 
     def predict_paraphrase(self,
@@ -83,7 +92,11 @@ class MultitaskBERT(nn.Module):
         during evaluation, and handled as a logit by the appropriate loss function.
         '''
         ### TODO
-        raise NotImplementedError
+        output1 = self.bert(input_ids_1, attention_mask_1)['pooler_output']
+        output2 = self.bert(input_ids_2, attention_mask_2)['pooler_output']
+        sim = F.cosine_similarity(output1, output2, dim=1)
+        return sim
+        #raise NotImplementedError
 
 
     def predict_similarity(self,
@@ -93,7 +106,11 @@ class MultitaskBERT(nn.Module):
         Note that your output should be unnormalized (a logit).
         '''
         ### TODO
-        raise NotImplementedError
+        outputs1 = self.bert(input_ids_1, attention_mask_1)['pooler_output']
+        outputs2 = self.bert(input_ids_2, attention_mask_2)['pooler_output']
+        sim = F.cosine_similarity(outputs1, outputs2, dim=1)
+        return sim
+        #raise NotImplementedError
 
 
 
@@ -124,10 +141,22 @@ def train_multitask(args):
     sst_train_data = SentenceClassificationDataset(sst_train_data, args)
     sst_dev_data = SentenceClassificationDataset(sst_dev_data, args)
 
+    para_train_data = SentencePairDataset(para_train_data, args)
+    para_dev_data = SentencePairDataset(para_dev_data, args)
+
+    sts_train_data = SentencePairDataset(sts_train_data, args)
+    sts_dev_data = SentencePairDataset(sts_dev_data, args)
+
     sst_train_dataloader = DataLoader(sst_train_data, shuffle=True, batch_size=args.batch_size,
                                       collate_fn=sst_train_data.collate_fn)
     sst_dev_dataloader = DataLoader(sst_dev_data, shuffle=False, batch_size=args.batch_size,
                                     collate_fn=sst_dev_data.collate_fn)
+    
+    para_train_dataloader = DataLoader(para_train_data, shuffle=True, batch_size=args.batch_size, collate_fn=para_train_data.collate_fn)
+    para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=args.batch_size, collate_fn=para_dev_data.collate_fn)
+
+    sts_train_dataloader = DataLoader(sts_train_data, shuffle=True, batch_size=args.batch_size, collate_fn=sts_train_data.collate_fn)
+    sts_dev_dataloader = DataLoader(sts_dev_data, shuffle=False, batch_size=args.batch_size, collate_fn=sts_dev_data.collate_fn)
 
     # Init model
     config = {'hidden_dropout_prob': args.hidden_dropout_prob,
@@ -178,6 +207,77 @@ def train_multitask(args):
             save_model(model, optimizer, args, config, args.filepath)
 
         print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
+    
+    model = MultitaskBERT(config)
+    model = model.to(device)
+
+    lr = args.lr
+    optimizer = AdamW(model.parameters(), lr=lr)
+    
+    best_train_loss = 1e5
+    for epoch in range(args.epochs):
+        model.train()
+        train_loss = 0
+        num_batches = 0
+        for batch in tqdm(para_train_dataloader, desc=f'train-{epoch}',disable=TQDM_DISABLE):
+            b_ids1, b_ids2, b_mask1, b_mask2, b_labels = (batch['token_ids_1'], batch['token_ids_2'], batch['attention_mask_1'], batch['attention_mask_2'], batch['labels'])
+            b_ids1 = b_ids1.to(device)
+            b_ids2 = b_ids2.to(device)
+            b_mask1 = b_mask1.to(device)
+            b_mask2 = b_mask2.to(device)
+            b_labels = b_labels.to(device)
+
+            optimizer.zero_grad()
+            logits = model.predict_paraphrase(b_ids1, b_mask1, b_ids2, b_mask2)
+            loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+
+            loss.backward()
+            optimizer.step()
+            num_batches += 1
+        train_loss = train_loss / (num_batches)
+
+        if train_loss < best_train_loss:
+            best_train_loss = train_loss
+            save_model(model, optimizer, args, config, args.filepath)
+
+
+        print(f"Epoch {epoch}: train loss :: {train_loss :.3f}")
+    
+    model = MultitaskBERT(config)
+    model = model.to(device)
+
+    lr = args.lr
+    optimizer = AdamW(model.parameters(), lr=lr)
+    
+    best_train_loss = 1e5
+    for epoch in range(args.epochs):
+        model.train()
+        num_batches = 0
+        for batch in tqdm(sts_train_dataloader, desc=f'train-{epoch}',disable=TQDM_DISABLE):
+            b_ids1, b_ids2, b_mask1, b_mask2, b_labels = (batch['token_ids_1'], batch['token_ids_2'], batch['attention_mask_1'], batch['attention_mask_2'], batch['labels'])
+            b_ids1 = b_ids1.to(device)
+            b_ids2 = b_ids2.to(device)
+            b_mask1 = b_mask1.to(device)
+            b_mask2 = b_mask2.to(device)
+            b_labels = b_labels.to(device)
+
+            optimizer.zero_grad()
+            logits = model.predict_similarity(b_ids1, b_mask1, b_ids2, b_mask2)
+            loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+
+            loss.backward()
+            optimizer.step()
+            num_batches += 1
+
+        train_loss = train_loss / (num_batches)
+
+        if train_loss < best_train_loss:
+            best_train_loss = train_loss
+            save_model(model, optimizer, args, config, args.filepath)
+
+
+        print(f"Epoch {epoch}: train loss :: {train_loss :.3f}")
+
 
 
 
