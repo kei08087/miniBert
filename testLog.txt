@@ -64,3 +64,8 @@ Acc in 5 epoch 64 batch hdp 0.15 pre lr 1e-3
 
 SST: 0.320
 CFIMDB: 0.633
+
+Acc in 20 epoch 64 batch hdp 0.1 pre lr 1e-3
+
+SST: 0.365
+CFIMDB: 0.669
