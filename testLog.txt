@@ -69,3 +69,15 @@ Acc in 20 epoch 64 batch hdp 0.1 pre lr 1e-3
 
 SST: 0.365
 CFIMDB: 0.669
+
+Acc in 20 epoch 64 batch hdp 0.05 pre lr 1e-3
+No diff from hdp 0.1
+
+Acc in 10 epoch 64 batch hdp 0.1 pre lr 1e-2
+
+SST: 0,314
+CFIMDB: 0.641
+
+
+Multitask classifier
+
