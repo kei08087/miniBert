@@ -13,11 +13,11 @@ from tqdm import tqdm
 from datasets import SentenceClassificationDataset, SentencePairDataset, \
     load_multitask_data, load_multitask_test_data
 
-from evaluation import model_eval_sst, test_model_multitask
+from evaluation import model_eval_sst, test_model_multitask, model_eval_para, model_eval_sts
 
 import math
 
-TQDM_DISABLE=True
+TQDM_DISABLE=False
 
 # fix the random seed
 def seed_everything(seed=11711):
@@ -35,6 +35,28 @@ N_SENTIMENT_CLASSES = 5
 
 MAX_DATA = 9000
 
+class MNR(nn.Module):
+
+    def __init__(self):
+        super(MNR, self).__init__()
+
+    def forward(self, seq_a, seq_b, label):
+ 
+        matrix = torch.zeros(seq_a.shape[0], seq_b.shape[0])
+
+
+        loss_sum = torch.zeros(1)
+
+        for i in range(seq_a.shape[0]):
+            for j in range(seq_b.shape[0]):
+                matrix[i, j] = F.cosine_similarity(seq_a[i, :], seq_b[j, :], dim=0)
+
+        for i in range(seq_a.shape[0]):
+            loss_sum += F.binary_cross_entropy_with_logits(matrix[i][i].float(), label[i].float(), reduction="sum")
+
+        loss = torch.tensor([loss_sum[0]], requires_grad=True)
+
+        return loss
 
 class MultitaskBERT(nn.Module):
     '''
@@ -57,7 +79,7 @@ class MultitaskBERT(nn.Module):
         ### TODO
         self.sentiment = torch.nn.Linear(BERT_HIDDEN_SIZE, N_SENTIMENT_CLASSES)
         self.paraphrase = torch.nn.Linear(BERT_HIDDEN_SIZE, 2)
-        self.similarity = torch.nn.Linear(BERT_HIDDEN_SIZE, 6)
+        self.similarity = torch.nn.Linear(BERT_HIDDEN_SIZE, 8)
         #raise NotImplementedError
 
 
@@ -121,12 +143,22 @@ class MultitaskBERT(nn.Module):
         output1 = self.bert(input_ids_1, attention_mask_1)['pooler_output']
         output2 = self.bert(input_ids_2, attention_mask_2)['pooler_output']
 
+        
+        #distance method
         output = torch.empty(output1.shape[0], output1.shape[1])
         for i in range(0, output1.shape[0]):
             for j in range(0, output1.shape[1]):
                 output[i][j] = math.sqrt(output1[i][j]*output1[i][j] + output2[i][j]*output2[i][j])
-
+        
         output = self.similarity(output)
+        
+        """
+        #cosine method
+        output = F.cosine_similarity(output1, output2)
+        output = (output + 1) * 2.5
+        """
+
+        #print(output.shape)
         return output
         raise NotImplementedError
 
@@ -156,10 +188,10 @@ def train_multitask(args):
     sst_train_data, num_labels,para_train_data, sts_train_data = load_multitask_data(args.sst_train,args.para_train,args.sts_train, split ='train')
     sst_dev_data, num_labels,para_dev_data, sts_dev_data = load_multitask_data(args.sst_dev,args.para_dev,args.sts_dev, split ='train')
 
-    if MAX_DATA > -1:
-        para_train_data = para_train_data[0:MAX_DATA]
-        max_dev = math.floor(MAX_DATA*.14)
-        para_dev_data = para_dev_data[0:max_dev]
+    #if MAX_DATA > -1:
+        #para_train_data = para_train_data[0:MAX_DATA]
+        #max_dev = math.floor(MAX_DATA*.14)
+        #para_dev_data = para_dev_data[0:max_dev]
 
     sst_train_data = SentenceClassificationDataset(sst_train_data, args)
     sst_dev_data = SentenceClassificationDataset(sst_dev_data, args)
@@ -235,13 +267,18 @@ def train_multitask(args):
 
         print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
     
-    """
+    
     best_dev_acc = 0
+    loss_fn = MNR()
     for epoch in range(args.epochs):
         model.train()
         train_loss = 0
         num_batches = 0
         for batch in tqdm(para_train_dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
+
+            #if MAX_DATA != -1 and num_batches > MAX_DATA:
+                #break
+
             b_ids1, b_ids2, b_mask1, b_mask2, b_labels = (batch['token_ids_1'], batch['token_ids_2'], batch['attention_mask_1'], batch['attention_mask_2'], batch['labels'])
             b_ids1 = b_ids1.to(device)
             b_ids2 = b_ids2.to(device)
@@ -249,11 +286,12 @@ def train_multitask(args):
             b_mask2 = b_mask2.to(device)
             b_labels = b_labels.to(device)
 
-            #print(b_labels.shape)
+            #print(b_labels.view(-1))
 
             optimizer.zero_grad()
             logits = model.predict_paraphrase(b_ids1, b_mask1, b_ids2, b_mask2)
-            #print(logits.shape)
+            #print(logits)
+            loss_fn(logits, b_labels.view(-1))
             loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
 
             loss.backward()
@@ -270,9 +308,10 @@ def train_multitask(args):
 
 
         print(f"Epoch {epoch}: train loss :: {train_loss :.3f}")
-    
+    """
     
     best_dev_acc = 0
+    loss_fn = MNR()
     for epoch in range(args.epochs):
         model.train()
         num_batches = 0
@@ -284,27 +323,34 @@ def train_multitask(args):
             b_mask2 = b_mask2.to(device)
             b_labels = b_labels.to(device)
 
-            #print(b_labels)
+
+            seq_a = model(b_ids1, b_mask1)
+            seq_b = model(b_ids2, b_mask2)
 
             optimizer.zero_grad()
             logits = model.predict_similarity(b_ids1, b_mask1, b_ids2, b_mask2)
-            loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+            #loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+            loss = loss_fn(seq_a, seq_b ,b_labels.view(-1))/args.batch_size
+            #loss.requires_grad_(True)
 
+            print(loss)
             loss.backward()
             optimizer.step()
             num_batches += 1
 
-        train_loss = train_loss / (num_batches)
+        #train_loss = train_loss / (num_batches)
 
         train_acc, *_ = model_eval_sts(sts_train_dataloader, model, device)
-        dev_acc, *_ = model_eval_para(sts_dev_dataloader, model, device)
+        dev_acc, *_ = model_eval_sts(sts_dev_dataloader, model, device)
 
         if best_dev_acc < dev_acc:
             best_dev_acc = dev_acc
             save_model(model, optimizer, args, config, args.filepath)
 
 
-        print(f"Epoch {epoch}: train loss :: {train_loss :.3f}")
+        #print(f"Epoch {epoch}: train loss :: {train_loss :.3f}")
+        print(f"Epoch: {epoch} Train Accuracy: {train_acc :.3f} Dev Accuracy {dev_acc :.3f}")
+        #print(f"Dev Accuracy {dev_acc :.3f}")
 
 
 
@@ -328,10 +374,10 @@ def multitask_testing(args):
     sst_train_data, num_labels,para_train_data, sts_train_data = load_multitask_data(args.sst_train,args.para_train,args.sts_train, split ='train')
     sst_dev_data, num_labels,para_dev_data, sts_dev_data = load_multitask_data(args.sst_dev,args.para_dev,args.sts_dev, split ='train')
 
-    if MAX_DATA > -1:
-        para_train_data = para_train_data[0:MAX_DATA]
-        max_dev = math.floor(MAX_DATA*.14)
-        para_dev_data = para_dev_data[0:max_dev]
+    #if MAX_DATA > -1:
+        #para_train_data = para_train_data[0:MAX_DATA]
+        #max_dev = math.floor(MAX_DATA*.14)
+        #para_dev_data = para_dev_data[0:max_dev]
 
     sst_train_data = SentenceClassificationDataset(sst_train_data, args)
     sst_dev_data = SentenceClassificationDataset(sst_dev_data, args)
@@ -412,10 +458,13 @@ def multitask_testing(args):
             inputMask = [b_sst_mask, b_para_mask1, b_para_mask2, b_sts_mask1, b_sts_mask2]
 
             optimizer.zero_grad()
-            sstLogit, paraLogit, stsLogit = model(inputData, inputMask)
+            sstLogit = model.predict_sentiment(inputData[0], inputMask[0])
+            paraLogit = model.predict_paraphrase(inputData[1], inputMask[1], inputData[2], inputMask[2])
+            stsLogit = model.predict_similarity(inputData[3], inputMask[3], inputData[4], inputMask[4])
 
             sstLoss = F.cross_entropy(sstLogit, b_sst_labels.view(-1), reduction='sum') / args.batch_size
-            paraLoss = F.binary_cross_entropy_with_logits(paraLogit, b_para_labels.float().view(-1),reduction='sum') / args.batch_size
+            #paraLoss = F.binary_cross_entropy_with_logits(paraLogit, b_para_labels.float().view(-1),reduction='sum') / args.batch_size
+            paraLoss = F.cross_entropy(paraLogit, b_para_labels.view(-1),reduction='sum') / args.batch_size
             stsLoss = F.mse_loss(stsLogit.float(),b_sts_labels.float().view(-1),reduction='sum')/args.batch_size
 
             loss = (sstLoss + paraLoss + stsLoss).float()
@@ -428,18 +477,18 @@ def multitask_testing(args):
 
         sst_train_acc, *_ = model_eval_sst(sst_train_dataloader, model, device)
         sst_dev_acc, *_ = model_eval_sst(sst_dev_dataloader,model,device)
-        para_train_acc, *_ = model_eval_para(para_train_dataloader,model,device)
-        para_dev_acc, *_ = model_eval_para(para_dev_dataloader,model,device)
+        #para_train_acc, *_ = model_eval_para(para_train_dataloader,model,device)
+        #para_dev_acc, *_ = model_eval_para(para_dev_dataloader,model,device)
         sts_train_acc, *_ = model_eval_sts(sts_train_dataloader,model,device)
         sts_dev_acc, *_ = model_eval_sts(sts_dev_dataloader,model,device)
 
         #para_train_acc = 0
         #para_dev_acc = 0
 
-        print(f"General Acc : SST :: {sst_train_acc :.3f} : PARA :: {para_train_acc :.3f} : STS :: {sts_train_acc :.3f}")
+        print(f"General Acc : SST :: {sst_train_acc :.3f} : STS :: {sts_train_acc :.3f}")
 
-        avg_dev_acc = (sst_dev_acc+para_dev_acc+sts_dev_acc)/3
-        print(f"Dev Acc : SST :: {sst_dev_acc :.3f} : PARA :: {para_dev_acc :.3f} : STS :: {sts_dev_acc :.3f} : AVG :: {avg_dev_acc :.3f}")
+        avg_dev_acc = (sst_dev_acc+sts_dev_acc)/2
+        print(f"Dev Acc : SST :: {sst_dev_acc :.3f} : STS :: {sts_dev_acc :.3f} : AVG :: {avg_dev_acc :.3f}")
 
         if avg_dev_acc > best_dev_acc:
             best_dev_acc = avg_dev_acc
@@ -491,4 +540,4 @@ if __name__ == "__main__":
     seed_everything(args.seed)  # fix the seed for reproducibility
     #multitask_testing(args)
     train_multitask(args)
-    test_model(args)
+    #test_model(args)

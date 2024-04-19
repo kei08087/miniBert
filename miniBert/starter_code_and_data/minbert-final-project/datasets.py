@@ -24,6 +24,8 @@ def preprocess_string(s):
                     .split())
 
 
+MAX_DATA = 9000
+
 class SentenceClassificationDataset(Dataset):
     def __init__(self, dataset, args):
         self.dataset = dataset
@@ -223,12 +225,16 @@ def load_multitask_test_data():
 
     paraphrase_data = []
     with open(paraphrase_filename, 'r') as fp:
+        #i = 0
         for record in csv.DictReader(fp,delimiter = '\t'):
             #if record['split'] != split:
-            #    continue
+                #continue
+            #if i > MAX_DATA:
+                #break
             paraphrase_data.append((preprocess_string(record['sentence1']),
                                     preprocess_string(record['sentence2']),
                                     ))
+            #i += 1
 
     print(f"Loaded {len(paraphrase_data)} test examples from {paraphrase_filename}")
 
@@ -268,16 +274,23 @@ def load_multitask_data(sentiment_filename,paraphrase_filename,similarity_filena
 
     paraphrase_data = []
     if split == 'test':
-        with open(paraphrase_filename, 'r') as fp:
+        with open(paraphrase_filename, 'r', errors="ignore") as fp:
+            #i=0
             for record in csv.DictReader(fp,delimiter = '\t'):
+                #if i > MAX_DATA:
+                    #break
                 sent_id = record['id'].lower().strip()
                 paraphrase_data.append((preprocess_string(record['sentence1']),
                                         preprocess_string(record['sentence2']),
                                         sent_id))
+                #i += 1
 
     else:
         with open(paraphrase_filename, 'r', errors="ignore") as fp:
+            #i=0
             for record in csv.DictReader(fp,delimiter = '\t'):
+                #if i > MAX_DATA:
+                    #break
                 try:
                     sent_id = record['id'].lower().strip()
                     paraphrase_data.append((preprocess_string(record['sentence1']),
@@ -285,12 +298,13 @@ def load_multitask_data(sentiment_filename,paraphrase_filename,similarity_filena
                                             int(float(record['is_duplicate'])),sent_id))
                 except:
                     pass
+                #i += 1
 
     print(f"Loaded {len(paraphrase_data)} {split} examples from {paraphrase_filename}")
 
     similarity_data = []
     if split == 'test':
-        with open(similarity_filename, 'r') as fp:
+        with open(similarity_filename, 'r', errors="ignore") as fp:
             for record in csv.DictReader(fp,delimiter = '\t'):
                 sent_id = record['id'].lower().strip()
                 similarity_data.append((preprocess_string(record['sentence1']),

@@ -22,7 +22,7 @@ from datasets import load_multitask_data, load_multitask_test_data, \
     SentencePairDataset, SentencePairTestDataset
 
 
-TQDM_DISABLE = True
+TQDM_DISABLE = False
 
 # Evaluate a multitask model for accuracy.on SST only.
 def model_eval_sst(dataloader, model, device):
@@ -52,6 +52,76 @@ def model_eval_sst(dataloader, model, device):
     acc = accuracy_score(y_true, y_pred)
 
     return acc, f1, y_pred, y_true, sents, sent_ids
+
+def model_eval_sts(dataloader, model, device):
+    model.eval()  # switch to eval model, will turn off randomness like dropout
+    y_true = []
+    y_pred = []
+    sents = []
+    sent_ids = []
+    for step, batch in enumerate(tqdm(dataloader, desc=f'eval', disable=TQDM_DISABLE)):
+        (b_ids1, b_mask1,
+             b_ids2, b_mask2,
+             b_labels, b_sent_ids) = (batch['token_ids_1'], batch['attention_mask_1'],
+                          batch['token_ids_2'], batch['attention_mask_2'],
+                          batch['labels'], batch['sent_ids'])
+
+        b_ids1 = b_ids1.to(device)
+        b_mask1 = b_mask1.to(device)
+        b_ids2 = b_ids2.to(device)
+        b_mask2 = b_mask2.to(device)
+
+        logits = model.predict_similarity(b_ids1, b_mask1, b_ids2, b_mask2)
+        logits = logits.detach().cpu().numpy()
+        preds = np.argmax(logits, axis=1).flatten()
+
+        b_labels = b_labels.flatten()
+        y_true.extend(b_labels)
+        y_pred.extend(preds)
+        #sents.extend(b_sents)
+        sent_ids.extend(b_sent_ids)
+
+    #f1 = f1_score(y_true, y_pred, average='macro')
+    acc = accuracy_score(y_true, y_pred)
+
+    return acc, y_pred, y_true, sent_ids
+
+def model_eval_para(paraphrase_dataloader, model, device):
+    model.eval()
+
+    with torch.no_grad():
+        para_y_true = []
+        para_y_pred = []
+        para_sent_ids = []
+
+        # Evaluate paraphrase detection.
+        for step, batch in enumerate(tqdm(paraphrase_dataloader, desc=f'eval', disable=TQDM_DISABLE)):
+            (b_ids1, b_mask1,
+             b_ids2, b_mask2,
+             b_labels, b_sent_ids) = (batch['token_ids_1'], batch['attention_mask_1'],
+                          batch['token_ids_2'], batch['attention_mask_2'],
+                          batch['labels'], batch['sent_ids'])
+
+            b_ids1 = b_ids1.to(device)
+            b_mask1 = b_mask1.to(device)
+            b_ids2 = b_ids2.to(device)
+            b_mask2 = b_mask2.to(device)
+
+            logits = model.predict_paraphrase(b_ids1, b_mask1, b_ids2, b_mask2)
+            y_hat = logits.sigmoid().round().flatten().cpu().numpy()
+            b_labels = b_labels.flatten().cpu().numpy()
+
+            para_y_pred.extend(y_hat)
+            para_y_true.extend(b_labels)
+            para_sent_ids.extend(b_sent_ids)
+        
+        #f1 = f1_score(para_y_true, para_y_pred, average='macro')
+        acc = accuracy_score(para_y_true, para_y_pred)
+
+        paraphrase_accuracy = np.mean(np.array(para_y_pred) == np.array(para_y_true))
+    
+    #print(f'Paraphrase detection accuracy: {paraphrase_accuracy:.3f}')
+    return acc, f1, para_y_pred, para_sent_ids
 
 # Perform model evaluation in terms by averaging accuracies across tasks.
 def model_eval_multitask(sentiment_dataloader,
