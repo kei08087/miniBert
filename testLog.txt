@@ -46,3 +46,25 @@ CFIMDB 0.596
 
 Seems like lr and batch is critical to SST and hdp is critical to CFIMDB. But lr does not effect a lot in CFIMDB and hdp dos not on SST. Batch on CFIMDB is unable to define because it is blocked to change them.
 
+Using the distance method for sts with batchsize 64 and dropout prob 0.15 cross entropy
+save the model to pretrain-10-1e-05-multitask.pt
+Epoch: 0 Train Accuracy: 0.185 Dev Accuracy 0.205
+save the model to pretrain-10-1e-05-multitask.pt
+Epoch: 1 Train Accuracy: 0.228 Dev Accuracy 0.257
+save the model to pretrain-10-1e-05-multitask.pt
+Epoch: 2 Train Accuracy: 0.262 Dev Accuracy 0.269
+save the model to pretrain-10-1e-05-multitask.pt
+Epoch: 3 Train Accuracy: 0.262 Dev Accuracy 0.272
+Epoch: 4 Train Accuracy: 0.262 Dev Accuracy 0.272
+Epoch: 5 Train Accuracy: 0.262 Dev Accuracy 0.272
+Epoch: 6 Train Accuracy: 0.262 Dev Accuracy 0.272
+Epoch: 7 Train Accuracy: 0.262 Dev Accuracy 0.272
+Epoch: 8 Train Accuracy: 0.262 Dev Accuracy 0.272
+Epoch: 9 Train Accuracy: 0.262 Dev Accuracy 0.272
+
+sts distance method multiple negatives batchsize 64 dropout prob 0.15
+Epoch: 0 Train Accuracy: 0.186 Dev Accuracy 0.212
+Epoch: 1 Train Accuracy: 0.186 Dev Accuracy 0.212
+Epoch: 2 Train Accuracy: 0.186 Dev Accuracy 0.212
+
+
