@@ -1,71 +1,14 @@
-SST: can change batch size, learning rate, epochs, hdp
-CFIMDB: can change learning rate, epochs, hdp
+Acc in 15 epoch 8 batch hdp 0.3 pre lr 1e-5
 
-default: batch size 8 hdp 0.3 lr pre 1e-3 fine 1e-5 epoch 10
+SST: 0.297
+CFIMDB: 0.498
 
+Acc in 15 epoch 32 batch hdp 0.3 pre lr 1e-5
 
-Accuracy in 3 epoch 8batch hdp 0.1 pre
-SST: 0.305
-CFIMDB: 0.482
+SST: 0.311
+CFIMDB: 0.576
 
-Acc in 20 epoch 16 batch hdp 0.01 pre
+Acc in 15 epoch 64 batch hdp 0.3 pre lr 1e-3
 
-CFIMDB: 0.490
-
-New code
-
-Acc in 2 epoch 32 batch hdp 0.01 pre
-
-SST: 0.302
-CFIMDB: 0.510
-
-Acc in 1 epoch 256 batch pre
-
-SST: 0.148
-CFIMDB: 0.535
-
-Acc in 1 epoch 2 batch pre
-
-SST: 0.274
-CFIMDB: 0.486
-
-Acc in 5 epoch 64 batch hdp 0.4 pre
-
-SST: 0.299
-CFIMDB: 0.514
-
-Acc in 20 epoch 64 batch hdp 0.2 pre lr 1e-4
-
-SST: 0.357
-CFIMDB 0.588
-
-Acc in 10 epoch 64 batch hdp 0.2 pre
-
-SST: 0.299
-CFIMDB 0.596
-
-Seems like lr and batch is critical to SST and hdp is critical to CFIMDB. But lr does not effect a lot in CFIMDB and hdp dos not on SST. Batch on CFIMDB is unable to define because it is blocked to change them.
-
-Acc in 5 epoch 64 batch hdp 0.2 pre lr 1e-5
-
-SST: 0.299
-CFIMDB: 0.514
-
-SST keeps improving while the epoch. So maybe there is possible chance for better result in more epoch.
-
-Acc in 20 epoch 64 batch hdp 0.15 pre lr 1e-5
-
-SST: 0.302
-CFIMDB: 0.522
-
-Nope. abandon it.
-
-Acc in 5 epoch 64 batch hdp 0.15 pre lr 1e-3
-
-SST: 0.320
-CFIMDB: 0.633
-
-Acc in 20 epoch 64 batch hdp 0.1 pre lr 1e-3
-
-SST: 0.365
-CFIMDB: 0.669
+SST: 0.368
+CFIMDB: 0.671
