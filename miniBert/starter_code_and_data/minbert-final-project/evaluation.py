@@ -86,39 +86,36 @@ def model_eval_sts(dataloader, model, device):
     return acc, f1, y_pred, y_true, sent_ids
 
 def model_eval_para(paraphrase_dataloader, model, device):
-    model.eval()
-
-    with torch.no_grad():
-        para_y_true = []
-        para_y_pred = []
-        para_sent_ids = []
-
-        # Evaluate paraphrase detection.
-        for step, batch in enumerate(tqdm(paraphrase_dataloader, desc=f'eval', disable=TQDM_DISABLE)):
-            (b_ids1, b_mask1,
+    model.eval()  # switch to eval model, will turn off randomness like dropout
+    y_true = []
+    y_pred = []
+    sents = []
+    sent_ids = []
+    for step, batch in enumerate(tqdm(paraphrase_dataloader, desc=f'eval', disable=TQDM_DISABLE)):
+        (b_ids1, b_mask1,
              b_ids2, b_mask2,
              b_labels, b_sent_ids) = (batch['token_ids_1'], batch['attention_mask_1'],
                           batch['token_ids_2'], batch['attention_mask_2'],
                           batch['labels'], batch['sent_ids'])
 
-            b_ids1 = b_ids1.to(device)
-            b_mask1 = b_mask1.to(device)
-            b_ids2 = b_ids2.to(device)
-            b_mask2 = b_mask2.to(device)
+        b_ids1 = b_ids1.to(device)
+        b_mask1 = b_mask1.to(device)
+        b_ids2 = b_ids2.to(device)
+        b_mask2 = b_mask2.to(device)
 
-            logits = model.predict_paraphrase(b_ids1, b_mask1, b_ids2, b_mask2)
-            y_hat = logits.sigmoid().round().flatten().cpu().numpy()
-            b_labels = b_labels.flatten().cpu().numpy()
+        logits = model.predict_paraphrase(b_ids1, b_mask1, b_ids2, b_mask2)
+        logits = logits.detach().cpu().numpy()
+        preds = np.argmax(logits, axis=1).flatten()
 
-            para_y_pred.extend(y_hat)
-            para_y_true.extend(b_labels)
-            para_sent_ids.extend(b_sent_ids)
-        
-        f1 = f1_score(para_y_true, para_y_pred, average='macro')
-        acc = accuracy_score(para_y_true, para_y_pred)
-    
-    #print(f'Paraphrase detection accuracy: {paraphrase_accuracy:.3f}')
-    return acc, f1, para_y_pred, para_sent_ids
+        b_labels = b_labels.flatten()
+        y_true.extend(b_labels)
+        y_pred.extend(preds)
+        sent_ids.extend(b_sent_ids)
+
+    f1 = f1_score(y_true, y_pred, average='macro')
+    acc = accuracy_score(y_true, y_pred)
+
+    return acc, f1, y_pred, y_true, sent_ids
 
 # Perform model evaluation in terms by averaging accuracies across tasks.
 def model_eval_multitask(sentiment_dataloader,
@@ -320,6 +317,7 @@ def test_model_multitask(args, model, device):
         sts_dev_dataloader = DataLoader(sts_dev_data, shuffle=False, batch_size=args.batch_size,
                                         collate_fn=sts_dev_data.collate_fn)
 
+        
         dev_paraphrase_accuracy, dev_para_y_pred, dev_para_sent_ids, \
             dev_sentiment_accuracy,dev_sst_y_pred, dev_sst_sent_ids, dev_sts_corr, \
             dev_sts_y_pred, dev_sts_sent_ids = model_eval_multitask(sst_dev_dataloader,

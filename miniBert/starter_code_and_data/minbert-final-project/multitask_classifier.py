@@ -80,7 +80,7 @@ class MultitaskBERT(nn.Module):
                 param.requires_grad = True
         ### TODO
         self.sentiment = torch.nn.Linear(BERT_HIDDEN_SIZE, N_SENTIMENT_CLASSES)
-        self.paraphrase = torch.nn.Linear(BERT_HIDDEN_SIZE, 2)
+        self.paraphrase = torch.nn.Linear(BERT_HIDDEN_SIZE*2, 2)
         self.similarity = torch.nn.Linear(BERT_HIDDEN_SIZE, 8)
         #raise NotImplementedError
 
@@ -234,7 +234,7 @@ def train_multitask(args):
     lr = args.lr
     optimizer = AdamW(model.parameters(), lr=lr)
     best_dev_acc = 0
-
+    
     # Run for the specified number of epochs
     for epoch in range(args.epochs):
         model.train()
@@ -250,9 +250,9 @@ def train_multitask(args):
 
             optimizer.zero_grad()
             logits = model.predict_sentiment(b_ids, b_mask)
-            print(logits)
+            #print(logits)
             loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
-            print(loss)
+            #print(loss)
             loss.backward()
             optimizer.step()
 
@@ -271,7 +271,9 @@ def train_multitask(args):
         print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
     
     best_dev_acc = 0
+    
     for epoch in range(args.epochs):
+        
         model.train()
         train_loss = 0
         num_batches = 0
@@ -286,13 +288,14 @@ def train_multitask(args):
             optimizer.zero_grad()
             logits = model.predict_paraphrase(b_ids1, b_mask1, b_ids2, b_mask2)
             loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+            loss = torch.tensor([loss.item()], requires_grad = True)
 
             loss.backward()
             optimizer.step()
             num_batches += 1
         train_loss = train_loss / (num_batches)
-
-        train_acc, *_ = model_eval_para(para_train_dataloader, model, device)
+        
+        #train_acc, *_ = model_eval_para(para_train_dataloader, model, device)
         dev_acc, *_ = model_eval_para(para_dev_dataloader, model, device)
 
         if best_dev_acc < dev_acc:
@@ -301,7 +304,7 @@ def train_multitask(args):
 
 
         print(f"Epoch {epoch}: train loss :: {train_loss :.3f}")
-    
+
     best_dev_acc = 0
     for epoch in range(args.epochs):
         model.train()
@@ -323,7 +326,7 @@ def train_multitask(args):
             num_batches += 1
 
         train_loss = train_loss / (num_batches)
-
+        
         train_acc, *_ = model_eval_sts(sts_train_dataloader, model, device)
         dev_acc, *_ = model_eval_para(sts_dev_dataloader, model, device)
 
@@ -490,8 +493,8 @@ def multitask_testing(args):
             stsLogit = model.predict_similarity(b_sts_ids1, b_sts_mask1, b_sts_ids2, b_sts_mask2)
 
             sstLoss = F.cross_entropy(sstLogit, b_sst_labels.view(-1), reduction='sum') / args.batch_size
-            paraLoss = F.binary_cross_entropy_with_logits(paraLogit, b_para_labels.float().view(-1),reduction='sum') / args.batch_size
-            stsLoss = F.mse_loss(stsLogit, b_sts_labels.view(-1),reduction='sum') / args.batch_size
+            paraLoss = F.cross_entropy(paraLogit, b_para_labels.view(-1),reduction='sum') / args.batch_size
+            stsLoss = F.cross_entropy(stsLogit, b_sts_labels.view(-1),reduction='sum') / args.batch_size
 
             #print(paraLogit.sigmoid().round().flatten())
             #print(b_para_labels)
@@ -503,7 +506,9 @@ def multitask_testing(args):
 
 
 
-            loss = (sstLoss + paraLoss + stsLoss + paraMNRLoss + stsMNRLoss)
+            loss = (sstLoss.item() + paraLoss.item() + stsLoss.item() + paraMNRLoss.item() + stsMNRLoss.item())
+            #loss = loss.float()
+            loss = torch.tensor([loss], requires_grad=True)
             loss.backward()
             optimizer.step()
             train_loss += loss.item()
@@ -570,6 +575,7 @@ def get_args():
     parser.add_argument("--lr", type=float, help="learning rate, default lr for 'pretrain': 1e-3, 'finetune': 1e-5",
                         default=1e-5)
     parser.add_argument("--max_data", type=int, default=6016)
+    parser.add_argument("--mode", type=str, choices=('multitask_finetune', 'normal'), default='normal')
 
     args = parser.parse_args()
     return args
@@ -579,6 +585,8 @@ if __name__ == "__main__":
     args.filepath = f'{args.option}-{args.epochs}-{args.lr}-multitask.pt' # save path
     seed_everything(args.seed)  # fix the seed for reproducibility
     #test_sts(args)
-    #multitask_testing(args)
-    train_multitask(args)
-    #test_model(args)
+    if args.mode == 'multitask_finetune':
+        multitask_testing(args) #multitask fine tuning
+    else:
+        train_multitask(args) #normal
+    test_model(args)
