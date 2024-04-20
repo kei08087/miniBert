@@ -9,11 +9,12 @@ from torch.utils.data import DataLoader
 from bert import BertModel
 from optimizer import AdamW
 from tqdm import tqdm
+import math
 
 from datasets import SentenceClassificationDataset, SentencePairDataset, \
     load_multitask_data, load_multitask_test_data
 
-from evaluation import model_eval_sst, test_model_multitask, model_eval_para, model_eval_sts
+from evaluation import model_eval_sst, test_model_multitask, model_eval_para, model_eval_sts, model_eval_sts_test
 
 
 TQDM_DISABLE=False
@@ -27,6 +28,29 @@ def seed_everything(seed=11711):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
+
+class MNR(nn.Module):
+
+    def __init__(self):
+        super(MNR, self).__init__()
+
+    def forward(self, seq_a, seq_b, label):
+ 
+        matrix = torch.zeros(seq_a.shape[0], seq_b.shape[0])
+
+
+        loss_sum = torch.zeros(1)
+
+        for i in range(seq_a.shape[0]):
+            for j in range(seq_b.shape[0]):
+                matrix[i, j] = F.cosine_similarity(seq_a[i, :], seq_b[j, :], dim=0)
+
+        for i in range(seq_a.shape[0]):
+            loss_sum += F.binary_cross_entropy_with_logits(matrix[i][i].float(), label[i].float(), reduction="sum")
+
+        loss = torch.tensor([loss_sum[0]], requires_grad=True)
+
+        return loss
 
 
 BERT_HIDDEN_SIZE = 768
@@ -54,8 +78,8 @@ class MultitaskBERT(nn.Module):
                 param.requires_grad = True
         ### TODO
         self.sentiment = torch.nn.Linear(BERT_HIDDEN_SIZE, N_SENTIMENT_CLASSES)
-        self.paraphrase = torch.nn.Linear(BERT_HIDDEN_SIZE, BERT_HIDDEN_SIZE)
-        self.similarity = torch.nn.Linear(BERT_HIDDEN_SIZE, BERT_HIDDEN_SIZE)
+        self.paraphrase = torch.nn.Linear(BERT_HIDDEN_SIZE*2, 1)
+        self.similarity = torch.nn.Linear(BERT_HIDDEN_SIZE, 6)
         #raise NotImplementedError
 
 
@@ -66,10 +90,9 @@ class MultitaskBERT(nn.Module):
         # When thinking of improvements, you can later try modifying this
         # (e.g., by adding other layers).
         ### TODO
-        sentLogit = self.predict_sentiment(input_ids[0], attention_mask[0])
-        paraLogit = self.predict_paraphrase(input_ids[1], attention_mask[1], input_ids[2], attention_mask[2])
-        simLogit = self.predict_similarity(input_ids[3],attention_mask[3],input_ids[4],attention_mask[4])
-        return sentLogit, paraLogit, simLogit
+        output = self.bert(input_ids, attention_mask)
+        output = output['pooler_output']
+        return output
         #raise NotImplementedError
 
 
@@ -95,10 +118,18 @@ class MultitaskBERT(nn.Module):
         during evaluation, and handled as a logit by the appropriate loss function.
         '''
         ### TODO
-        output1 = self.paraphrase(self.bert(input_ids_1, attention_mask_1)['pooler_output'])
-        output2 = self.paraphrase(self.bert(input_ids_2, attention_mask_2)['pooler_output'])
-        sim = F.cosine_similarity(output1, output2, dim=1)
-        return sim
+
+        output1 = self.bert(input_ids_1, attention_mask_1)['pooler_output']
+        output2 = self.bert(input_ids_2, attention_mask_2)['pooler_output']
+
+        output = torch.cat([output1,output2],dim=-1)
+
+        output = self.paraphrase(output).squeeze(1)
+
+        #print(output)
+        #print(output.sigmoid())
+
+        return output.detach()
         #raise NotImplementedError
 
 
@@ -109,14 +140,30 @@ class MultitaskBERT(nn.Module):
         Note that your output should be unnormalized (a logit).
         '''
         ### TODO
-        outputs1 = self.similarity(self.bert(input_ids_1, attention_mask_1)['pooler_output'])
-        outputs2 = self.similarity(self.bert(input_ids_2, attention_mask_2)['pooler_output'])
-        sim = F.cosine_similarity(outputs1, outputs2, dim=1)
-        #print(sim)
-        sim = torch.abs(sim)*5
-        #print(sim)
-        return sim
+        output1 = self.bert(input_ids_1, attention_mask_1)['pooler_output']
+        output2 = self.bert(input_ids_2, attention_mask_2)['pooler_output']
+
+        
+
+        output = F.cosine_similarity(output1,output2, dim=1)
+        #print(output)
+        #print(output)
+
+        return output
         #raise NotImplementedError
+
+    def test_similarity(self,
+                           input_ids_1, attention_mask_1,
+                           input_ids_2, attention_mask_2):
+        output1 = self.bert(input_ids_1, attention_mask_1)['pooler_output']
+        output2 = self.bert(input_ids_2, attention_mask_2)['pooler_output']
+        output = torch.empty(output1.shape[0], output1.shape[1])
+        for i in range(0, output1.shape[0]):
+            for j in range(0, output1.shape[1]):
+                output[i][j] = math.sqrt(output1[i][j]*output1[i][j] + output2[i][j]*output2[i][j])
+
+        output = self.similarity(output)
+        return output
 
 
 
@@ -138,6 +185,39 @@ def save_model(model, optimizer, args, config, filepath):
 
 ## Currently only trains on sst dataset
 
+def test_sts(args):
+    device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
+
+    
+
+    
+
+    
+    sst_train_data, num_labels,para_train_data, sts_train_data = load_multitask_data(args.sst_train,args.para_train,args.sts_train, split ='train')
+    sst_dev_data, num_labels,para_dev_data, sts_dev_data = load_multitask_data(args.sst_dev,args.para_dev,args.sts_dev, split ='train')
+
+    if args.max_data > -1:
+        sts_train_data = sts_train_data[0:128]
+
+    sts_train_data = SentencePairDataset(sts_train_data, args)
+    sts_dev_data = SentencePairDataset(sts_dev_data, args)
+
+    sts_train_dataloader = DataLoader(sts_train_data, shuffle=True, batch_size=args.batch_size, collate_fn=sts_train_data.collate_fn)
+    sts_dev_dataloader = DataLoader(sts_dev_data, shuffle=False, batch_size=args.batch_size, collate_fn=sts_dev_data.collate_fn)
+
+    config = {'hidden_dropout_prob': args.hidden_dropout_prob,
+              'num_labels': num_labels,
+              'hidden_size': 768,
+              'data_dir': '.',
+              'option': args.option}
+    config = SimpleNamespace(**config)
+    model = MultitaskBERT(config)
+    model = model.to(device)
+
+
+    train_acc, *_ = model_eval_sts_test(sts_train_dataloader, model, device)
+
+    print(train_acc)
 
 def train_multitask(args):
     device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
@@ -288,26 +368,6 @@ def multitask_testing(args):
     sst_train_data, num_labels,para_train_data, sts_train_data = load_multitask_data(args.sst_train,args.para_train,args.sts_train, split ='train')
     sst_dev_data, num_labels,para_dev_data, sts_dev_data = load_multitask_data(args.sst_dev,args.para_dev,args.sts_dev, split ='train')
 
-    sst_train_data = SentenceClassificationDataset(sst_train_data, args)
-    sst_dev_data = SentenceClassificationDataset(sst_dev_data, args)
-
-    para_train_data = SentencePairDataset(para_train_data, args)
-    para_dev_data = SentencePairDataset(para_dev_data, args)
-
-    sts_train_data = SentencePairDataset(sts_train_data, args)
-    sts_dev_data = SentencePairDataset(sts_dev_data, args)
-
-    sst_train_dataloader = DataLoader(sst_train_data, shuffle=True, batch_size=args.batch_size,
-                                      collate_fn=sst_train_data.collate_fn)
-    sst_dev_dataloader = DataLoader(sst_dev_data, shuffle=False, batch_size=args.batch_size,
-                                    collate_fn=sst_dev_data.collate_fn)
-    
-    para_train_dataloader = DataLoader(para_train_data, shuffle=True, batch_size=args.batch_size, collate_fn=para_train_data.collate_fn)
-    para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=args.batch_size, collate_fn=para_dev_data.collate_fn)
-
-    sts_train_dataloader = DataLoader(sts_train_data, shuffle=True, batch_size=args.batch_size, collate_fn=sts_train_data.collate_fn)
-    sts_dev_dataloader = DataLoader(sts_dev_data, shuffle=False, batch_size=args.batch_size, collate_fn=sts_dev_data.collate_fn)
-
     # Init model
     config = {'hidden_dropout_prob': args.hidden_dropout_prob,
               'num_labels': num_labels,
@@ -324,25 +384,99 @@ def multitask_testing(args):
     lr = args.lr
     optimizer = AdamW(model.parameters(), lr=lr)
     best_dev_acc = 0
+    
+    sst_dev_data_set = SentenceClassificationDataset(sst_dev_data, args)
+
+    para_dev_data_portion = para_dev_data[:64]
+
+    para_dev_data_set = SentencePairDataset(para_dev_data_portion, args)
+    sts_dev_data_set = SentencePairDataset(sts_dev_data, args)
+    sst_dev_dataloader = DataLoader(sst_dev_data_set, shuffle=False, batch_size=args.batch_size,
+                                    collate_fn=sst_dev_data_set.collate_fn)
+    para_dev_dataloader = DataLoader(para_dev_data_set, shuffle=False, batch_size=args.batch_size, collate_fn=para_dev_data_set.collate_fn)
+    sts_dev_dataloader = DataLoader(sts_dev_data_set, shuffle=False, batch_size=args.batch_size, collate_fn=sts_dev_data_set.collate_fn)
+
     for epoch in range(args.epochs):
         model.train()
+
+        if args.max_data > -1:
+            sst_train_len = len(sst_train_data)
+            para_train_len = len(para_train_data)
+            sts_train_len = len(sts_train_data)
+
+            if sst_train_len > args.max_data:
+                sst_part_prob = random.randrange(0,sst_train_len-args.max_data)
+                sst_train_data_portion = sst_train_data[sst_part_prob:sst_part_prob+args.max_data]
+            else:
+                sst_train_data_portion = sst_train_data[:]
+
+            if para_train_len > args.max_data:
+                para_part_prob = random.randrange(0,para_train_len-args.max_data)
+                para_train_data_portion = para_train_data[para_part_prob:para_part_prob+args.max_data]
+            else:
+                para_train_data_portion = para_train_data[:]
+                para_dev_data_portion = para_dev_data[:]
+
+
+            if sts_train_len > args.max_data:
+                sts_part_prob = random.randrange(0,sts_train_len-args.max_data)
+                sts_train_data_portion = sts_train_data[sts_part_prob:sts_part_prob+args.max_data]
+            else:
+                sts_train_data_portion = sts_train_data[:]
+            
+            
+            
+
+        sst_train_data_set = SentenceClassificationDataset(sst_train_data_portion, args)
+        
+
+        para_train_data_set = SentencePairDataset(para_train_data_portion, args)
+        
+
+        sts_train_data_set = SentencePairDataset(sts_train_data_portion, args)
+        
+
+        sst_train_dataloader = DataLoader(sst_train_data_set, shuffle=True, batch_size=args.batch_size,
+                                      collate_fn=sst_train_data_set.collate_fn)
+        
+    
+        para_train_dataloader = DataLoader(para_train_data_set, shuffle=True, batch_size=args.batch_size, collate_fn=para_train_data_set.collate_fn)
+        
+
+        sts_train_dataloader = DataLoader(sts_train_data_set, shuffle=True, batch_size=args.batch_size, collate_fn=sts_train_data_set.collate_fn)
+        
         train_loss = 0
         batches = 0
         sst_train_dataloader_it = iter(sst_train_dataloader)
         para_train_dataloader_it = iter(para_train_dataloader)
         sts_train_dataloader_it = iter(sts_train_dataloader)
-        while True:
-            nextSST = None
-            nextPara = None
-            nextSTS = None
+        batch_num = int(args.max_data/args.batch_size)
+
+        tot_sst_loss = 0
+        tot_para_loss = 0
+        tot_sts_loss = 0
+
+        loss_mnr_fn = MNR()
+
+        for batch_num in tqdm(range(batch_num), desc=f'train-{epoch}', disable=TQDM_DISABLE):
 
             try:
                 nextSST = sst_train_dataloader_it.__next__()
+            except:
+                sst_train_dataloader_it = iter(sst_train_dataloader)
+                nextSST = sst_train_dataloader_it.__next__()
+
+            try: 
                 nextPara = para_train_dataloader_it.__next__()
+            except:
+                para_train_dataloader_it = iter(para_train_dataloader)
+                nextPara = para_train_dataloader_it.__next__()
+
+            try:
                 nextSTS = sts_train_dataloader_it.__next__()
             except:
-                print("end training")
-                break
+                sts_train_dataloader_it = iter(sts_train_dataloader)
+                nextSTS = sts_train_dataloader_it.__next__()
 
             b_sst_ids, b_sst_mask, b_sst_labels = (nextSST['token_ids'],
                                        nextSST['attention_mask'], nextSST['labels'])
@@ -363,20 +497,33 @@ def multitask_testing(args):
             b_sts_mask2.to(device)
             b_sts_labels.to(device)
 
-            inputData = [b_sst_ids, b_para_ids1, b_para_ids2, b_sts_ids1, b_sts_ids2]
-            inputMask = [b_sst_mask, b_para_mask1, b_para_mask2, b_sts_mask1, b_sts_mask2]
-
             optimizer.zero_grad()
-            sstLogit, paraLogit, stsLogit = model(inputData, inputMask)
+
+            sstLogit = model.predict_sentiment(b_sst_ids,b_sst_mask)
+            paraLogit = model.predict_paraphrase(b_para_ids1, b_para_mask1, b_para_ids2, b_para_mask2)
+            stsLogit = model.predict_similarity(b_sts_ids1, b_sts_mask1, b_sts_ids2, b_sts_mask2)
 
             sstLoss = F.cross_entropy(sstLogit, b_sst_labels.view(-1), reduction='sum') / args.batch_size
             paraLoss = F.binary_cross_entropy_with_logits(paraLogit, b_para_labels.float().view(-1),reduction='sum') / args.batch_size
-            stsLoss = F.mse_loss(stsLogit.float(),b_sts_labels.float().view(-1),reduction='sum')/args.batch_size
+            stsLoss = F.mse_loss(stsLogit, b_sts_labels.view(-1),reduction='sum') / args.batch_size
 
-            loss = (sstLoss + paraLoss + stsLoss).float()
+            #print(paraLogit.sigmoid().round().flatten())
+            #print(b_para_labels)
+            #print(stsLogit.flatten())
+            #print(b_sts_labels)
+
+            paraMNRLoss = loss_mnr_fn(model(b_para_ids1,b_para_mask1),model(b_para_ids2,b_para_mask2), b_para_labels.view(-1))/args.batch_size
+            stsMNRLoss = loss_mnr_fn(model(b_sts_ids1,b_sts_mask1),model(b_sts_ids2,b_sts_mask2), b_sts_labels.view(-1))/args.batch_size
+
+
+
+            loss = (sstLoss + paraLoss + stsLoss + paraMNRLoss + stsMNRLoss)
             loss.backward()
             optimizer.step()
             train_loss += loss.item()
+            tot_sst_loss += sstLoss.item()
+            tot_para_loss += paraLoss.item()
+            tot_sts_loss += stsLoss.item()
             batches+=1
         
         train_loss = train_loss/batches/3
@@ -399,7 +546,7 @@ def multitask_testing(args):
         if avg_dev_acc > best_dev_acc:
             best_dev_acc = avg_dev_acc
             save_model(model, optimizer, args, config, args.filepath)
-        print(f"Epoch {epoch}: train loss :: {train_loss :.3f}")
+        print(f"Epoch {epoch}: train loss :: {train_loss :.3f} sst loss :: {tot_sst_loss/batches :.3f} para loss :: {tot_para_loss/batches :.3f} sts loss :: {tot_sts_loss/batches :.3f}")
 
 
             
@@ -458,6 +605,7 @@ def get_args():
     parser.add_argument("--hidden_dropout_prob", type=float, default=0.3)
     parser.add_argument("--lr", type=float, help="learning rate, default lr for 'pretrain': 1e-3, 'finetune': 1e-5",
                         default=1e-5)
+    parser.add_argument("--max_data", type=int, default=6016)
 
     args = parser.parse_args()
     return args
@@ -466,6 +614,7 @@ if __name__ == "__main__":
     args = get_args()
     args.filepath = f'{args.option}-{args.epochs}-{args.lr}-multitask.pt' # save path
     seed_everything(args.seed)  # fix the seed for reproducibility
+    #test_sts(args)
     multitask_testing(args)
     #train_multitask(args)
     #test_model(args)

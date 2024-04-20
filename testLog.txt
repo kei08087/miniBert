@@ -81,3 +81,10 @@ CFIMDB: 0.641
 
 Multitask classifier
 
+SST:Cross-Entropy Para:Cross-Entropy&argmax STS:CosineSimilarity&MSE
+Acc in 10 epoch 64 batch hdp 0.15 pre lr 1e-3 data_size 6016
+SST:0.352 Para:0.626 STS:0.021
+
+SST:Cross-Entropy Para:Cross-Entropy&argmax STS:CosineSimilarity&MSE + MNR, Relu
+Acc in 10 epoch 64 batch hdp 0.15 pre lr 1e-3 data_size 6016
+SST:0.352 Para:0.626 STS:0.012
