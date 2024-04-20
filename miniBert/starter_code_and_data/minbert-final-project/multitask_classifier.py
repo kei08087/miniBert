@@ -54,7 +54,9 @@ class MNR(nn.Module):
         for i in range(seq_a.shape[0]):
             loss_sum += F.binary_cross_entropy_with_logits(matrix[i][i].float(), label[i].float(), reduction="sum")
 
-        loss = torch.tensor([loss_sum[0]], requires_grad=True)
+        #loss_sum = F.cross_entropy(matrix, label, reduction="sum")
+
+        loss = torch.tensor([loss_sum.item()], requires_grad=True)
 
         return loss
 
@@ -330,10 +332,13 @@ def train_multitask(args):
             optimizer.zero_grad()
             logits = model.predict_similarity(b_ids1, b_mask1, b_ids2, b_mask2)
             #loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+            #loss = F.binary_cross_entropy_with_logits(logits.long(), b_labels.long().view(-1), reduction='sum') / args.batch_size
+            #loss = F.mse_loss(logits.float(),b_labels.float().view(-1),reduction='sum')/args.batch_size
             loss = loss_fn(seq_a, seq_b ,b_labels.view(-1))/args.batch_size
-            #loss.requires_grad_(True)
+            #loss = F.cosine_embedding_loss(seq_a, seq_b, logits) / args.batch_size
+            loss.requires_grad_(True)
 
-            print(loss)
+            #print(loss)
             loss.backward()
             optimizer.step()
             num_batches += 1

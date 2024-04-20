@@ -78,13 +78,12 @@ def model_eval_sts(dataloader, model, device):
         b_labels = b_labels.flatten()
         y_true.extend(b_labels)
         y_pred.extend(preds)
-        #sents.extend(b_sents)
         sent_ids.extend(b_sent_ids)
 
-    #f1 = f1_score(y_true, y_pred, average='macro')
+    f1 = f1_score(y_true, y_pred, average='macro')
     acc = accuracy_score(y_true, y_pred)
 
-    return acc, y_pred, y_true, sent_ids
+    return acc, f1, y_pred, y_true, sent_ids
 
 def model_eval_para(paraphrase_dataloader, model, device):
     model.eval()
