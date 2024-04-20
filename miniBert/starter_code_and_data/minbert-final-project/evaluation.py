@@ -22,7 +22,7 @@ from datasets import load_multitask_data, load_multitask_test_data, \
     SentencePairDataset, SentencePairTestDataset
 
 
-TQDM_DISABLE = True
+TQDM_DISABLE = False
 
 # Evaluate a multitask model for accuracy.on SST only.
 def model_eval_sst(dataloader, model, device):
@@ -69,17 +69,16 @@ def model_eval_para(dataloader, model, device):
         b_mask2 = b_mask2.to(device)
 
         logits = model.predict_paraphrase(b_ids1, b_mask1, b_ids2, b_mask2)
-        y_hat = logits.sigmoid().round().flatten().cpu().detach().numpy()
+        y_hat = logits.sigmoid().round().flatten().cpu().numpy()
         b_labels = b_labels.flatten().cpu().numpy()
 
         y_pred.extend(y_hat)
         y_true.extend(b_labels)
         sent_ids.extend(b_sent_ids)
 
-    f1 = f1_score(y_true, y_pred, average='macro')
-    acc = accuracy_score(y_true, y_pred)
+    acc = np.mean(np.array(y_pred) == np.array(y_true))
 
-    return acc, f1, y_pred, y_true, sents, sent_ids
+    return acc, y_pred, y_true, sents, sent_ids
 
 def model_eval_sts(dataloader, model, device):
     model.eval()  # switch to eval model, will turn off randomness like dropout
@@ -97,13 +96,52 @@ def model_eval_sts(dataloader, model, device):
         b_mask2 = b_mask2.to(device)
 
         logits = model.predict_similarity(b_ids1, b_mask1, b_ids2, b_mask2)
-        y_hat = logits.flatten().cpu().detach().numpy()
+        y_hat = logits.flatten().cpu().numpy()
         b_labels = b_labels.flatten().cpu().numpy()
+
+        #print(y_hat)
+        #print(b_labels)
 
         y_pred.extend(y_hat)
         y_true.extend(b_labels)
         sent_ids.extend(b_sent_ids)
 
+    #print(y_pred)
+    #print(b_labels)
+    pearson_mat = np.corrcoef(y_pred,y_true)
+    sts_corr = pearson_mat[1][0]
+
+
+    return sts_corr, y_pred, y_true, sents, sent_ids
+
+def model_eval_sts_test(dataloader, model, device):
+    model.eval()  # switch to eval model, will turn off randomness like dropout
+    y_true = []
+    y_pred = []
+    sents = []
+    sent_ids = []
+    for step, batch in enumerate(tqdm(dataloader, desc=f'eval', disable=TQDM_DISABLE)):
+        b_ids1, b_ids2, b_mask1, b_mask2, b_labels, b_sent_ids = batch['token_ids_1'],batch['token_ids_2'],batch['attention_mask_1'],batch['attention_mask_2'],  \
+                                                        batch['labels'], batch['sent_ids']
+
+        b_ids1 = b_ids1.to(device)
+        b_mask1 = b_mask1.to(device)
+        b_ids2 = b_ids2.to(device)
+        b_mask2 = b_mask2.to(device)
+
+        logits = model.test_similarity(b_ids1, b_mask1, b_ids2, b_mask2)
+        y_hat = logits.argmax(1).flatten().cpu().detach().numpy()
+        b_labels = b_labels.flatten().cpu().numpy()
+
+        #print(y_hat)
+        #print(b_labels)
+
+        y_pred.extend(y_hat)
+        y_true.extend(b_labels)
+        sent_ids.extend(b_sent_ids)
+
+    print(y_pred)
+    print(y_true)
     pearson_mat = np.corrcoef(y_pred,y_true)
     sts_corr = pearson_mat[1][0]
 
