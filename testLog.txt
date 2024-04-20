@@ -11,4 +11,4 @@ CFIMDB: 0.576
 Acc in 15 epoch 64 batch hdp 0.3 pre lr 1e-3
 
 SST: 0.368
-CFIMDB: 0.671
+CFIMDB: 0.682
