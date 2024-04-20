@@ -114,10 +114,8 @@ def model_eval_para(paraphrase_dataloader, model, device):
             para_y_true.extend(b_labels)
             para_sent_ids.extend(b_sent_ids)
         
-        #f1 = f1_score(para_y_true, para_y_pred, average='macro')
+        f1 = f1_score(para_y_true, para_y_pred, average='macro')
         acc = accuracy_score(para_y_true, para_y_pred)
-
-        paraphrase_accuracy = np.mean(np.array(para_y_pred) == np.array(para_y_true))
     
     #print(f'Paraphrase detection accuracy: {paraphrase_accuracy:.3f}')
     return acc, f1, para_y_pred, para_sent_ids
