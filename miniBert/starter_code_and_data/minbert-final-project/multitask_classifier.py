@@ -593,4 +593,4 @@ if __name__ == "__main__":
         multitask_testing(args)
     else:
         train_multitask(args)
-    #test_model(args)
+    test_model(args)
