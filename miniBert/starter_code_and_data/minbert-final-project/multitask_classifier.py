@@ -136,15 +136,16 @@ class MultitaskBERT(nn.Module):
 
         output1 = self.bert(input_ids_1, attention_mask_1)['pooler_output']
         output2 = self.bert(input_ids_2, attention_mask_2)['pooler_output']
+        
+        #output = torch.cat([output1,output2],dim=-1)
 
-        output = torch.cat([output1,output2],dim=-1)
-
-        output = self.paraphrase(output).squeeze(1)
+        #output = self.paraphrase(output).squeeze(1)
 
         #print(output)
         #print(output.sigmoid())
 
-        return output.detach()
+        output = F.cosine_similarity(output1, output2)
+        return output
 
         raise NotImplementedError
 
@@ -159,7 +160,7 @@ class MultitaskBERT(nn.Module):
         output1 = self.bert(input_ids_1, attention_mask_1)['pooler_output']
         output2 = self.bert(input_ids_2, attention_mask_2)['pooler_output']
 
-        
+        """
         #distance method
         output = torch.empty(output1.shape[0], output1.shape[1])
         for i in range(0, output1.shape[0]):
@@ -172,7 +173,7 @@ class MultitaskBERT(nn.Module):
         #cosine method
         output = F.cosine_similarity(output1, output2)
         output = (output + 1) * 2.5
-        """
+        
 
         #print(output.shape)
         return output
@@ -234,7 +235,7 @@ def train_multitask(args):
     lr = args.lr
     optimizer = AdamW(model.parameters(), lr=lr)
     best_dev_acc = 0
-
+    
     # Run for the specified number of epochs
     for epoch in range(args.epochs):
         model.train()
@@ -272,6 +273,7 @@ def train_multitask(args):
     
     best_dev_acc = 0
     for epoch in range(args.epochs):
+        
         model.train()
         train_loss = 0
         num_batches = 0
@@ -285,13 +287,15 @@ def train_multitask(args):
 
             optimizer.zero_grad()
             logits = model.predict_paraphrase(b_ids1, b_mask1, b_ids2, b_mask2)
-            loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+            loss = F.binary_cross_entropy_with_logits(logits, b_labels.float().view(-1), reduction='sum') / args.batch_size
+            loss = torch.tensor([loss.item()], requires_grad=True)
 
             loss.backward()
             optimizer.step()
             num_batches += 1
+            train_loss += loss.item()
         train_loss = train_loss / (num_batches)
-
+        
         train_acc, *_ = model_eval_para(para_train_dataloader, model, device)
         dev_acc, *_ = model_eval_para(para_dev_dataloader, model, device)
 
@@ -303,9 +307,12 @@ def train_multitask(args):
         print(f"Epoch {epoch}: train loss :: {train_loss :.3f}")
     
     best_dev_acc = 0
+    
     for epoch in range(args.epochs):
+        
         model.train()
         num_batches = 0
+        train_loss = 0
         for batch in tqdm(sts_train_dataloader, desc=f'train-{epoch}',disable=TQDM_DISABLE):
             b_ids1, b_ids2, b_mask1, b_mask2, b_labels = (batch['token_ids_1'], batch['token_ids_2'], batch['attention_mask_1'], batch['attention_mask_2'], batch['labels'])
             b_ids1 = b_ids1.to(device)
@@ -316,14 +323,16 @@ def train_multitask(args):
 
             optimizer.zero_grad()
             logits = model.predict_similarity(b_ids1, b_mask1, b_ids2, b_mask2)
-            loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+            loss = F.mse_loss(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+            loss = torch.tensor([loss.item()], requires_grad=True)
 
             loss.backward()
             optimizer.step()
             num_batches += 1
+            train_loss += loss.item()
 
         train_loss = train_loss / (num_batches)
-
+        
         train_acc, *_ = model_eval_sts(sts_train_dataloader, model, device)
         dev_acc, *_ = model_eval_para(sts_dev_dataloader, model, device)
 
@@ -570,6 +579,7 @@ def get_args():
     parser.add_argument("--lr", type=float, help="learning rate, default lr for 'pretrain': 1e-3, 'finetune': 1e-5",
                         default=1e-5)
     parser.add_argument("--max_data", type=int, default=6016)
+    parser.add_argument("--mode", type=str, choices=("multitask_finetune", "normal"), default="normal")
 
     args = parser.parse_args()
     return args
@@ -579,6 +589,8 @@ if __name__ == "__main__":
     args.filepath = f'{args.option}-{args.epochs}-{args.lr}-multitask.pt' # save path
     seed_everything(args.seed)  # fix the seed for reproducibility
     #test_sts(args)
-    #multitask_testing(args)
-    train_multitask(args)
+    if args.mode == "multitask_finetune":
+        multitask_testing(args)
+    else:
+        train_multitask(args)
     #test_model(args)
