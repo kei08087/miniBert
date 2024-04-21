@@ -128,7 +128,7 @@ def model_eval_multitask(sentiment_dataloader,
         para_y_true = []
         para_y_pred = []
         para_sent_ids = []
-
+        
         # Evaluate paraphrase detection.
         for step, batch in enumerate(tqdm(paraphrase_dataloader, desc=f'eval', disable=TQDM_DISABLE)):
             (b_ids1, b_mask1,
@@ -137,26 +137,23 @@ def model_eval_multitask(sentiment_dataloader,
                           batch['token_ids_2'], batch['attention_mask_2'],
                           batch['labels'], batch['sent_ids'])
 
-            b_ids1 = b_ids1.to(device)
-            b_mask1 = b_mask1.to(device)
-            b_ids2 = b_ids2.to(device)
-            b_mask2 = b_mask2.to(device)
-
             logits = model.predict_paraphrase(b_ids1, b_mask1, b_ids2, b_mask2)
-            y_hat = logits.sigmoid().round().flatten().cpu().numpy()
-            b_labels = b_labels.flatten().cpu().numpy()
+            logits = logits.detach().cpu().numpy()
+            preds = np.argmax(logits, axis=1).flatten()
 
-            para_y_pred.extend(y_hat)
+            b_labels = b_labels.flatten()
             para_y_true.extend(b_labels)
+            para_y_pred.extend(preds)
             para_sent_ids.extend(b_sent_ids)
 
-        paraphrase_accuracy = np.mean(np.array(para_y_pred) == np.array(para_y_true))
 
+        paraphrase_accuracy = np.mean(np.array(para_y_pred) == np.array(para_y_true))
+        
         sts_y_true = []
         sts_y_pred = []
         sts_sent_ids = []
 
-
+        
         # Evaluate semantic textual similarity.
         for step, batch in enumerate(tqdm(sts_dataloader, desc=f'eval', disable=TQDM_DISABLE)):
             (b_ids1, b_mask1,
@@ -171,11 +168,12 @@ def model_eval_multitask(sentiment_dataloader,
             b_mask2 = b_mask2.to(device)
 
             logits = model.predict_similarity(b_ids1, b_mask1, b_ids2, b_mask2)
-            y_hat = logits.flatten().cpu().numpy()
-            b_labels = b_labels.flatten().cpu().numpy()
+            logits = logits.detach().cpu().numpy()
+            preds = np.argmax(logits, axis=1).flatten()
 
-            sts_y_pred.extend(y_hat)
+            b_labels = b_labels.flatten()
             sts_y_true.extend(b_labels)
+            sts_y_pred.extend(preds)
             sts_sent_ids.extend(b_sent_ids)
         pearson_mat = np.corrcoef(sts_y_pred,sts_y_true)
         sts_corr = pearson_mat[1][0]
