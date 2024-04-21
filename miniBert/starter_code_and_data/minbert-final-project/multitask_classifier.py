@@ -251,9 +251,9 @@ def train_multitask(args):
 
             optimizer.zero_grad()
             logits = model.predict_sentiment(b_ids, b_mask)
-            print(logits)
+            #print(logits)
             loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
-            print(loss)
+            #print(loss)
             loss.backward()
             optimizer.step()
 
