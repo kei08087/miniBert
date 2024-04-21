@@ -72,12 +72,11 @@ def model_eval_sts(dataloader, model, device):
         b_mask2 = b_mask2.to(device)
 
         logits = model.predict_similarity(b_ids1, b_mask1, b_ids2, b_mask2)
-        logits = logits.detach().cpu().numpy()
-        preds = np.argmax(logits, axis=1).flatten()
+        y_hat = logits.sigmoid().round().flatten().cpu().numpy()
+        b_labels = b_labels.flatten().cpu().numpy()
 
-        b_labels = b_labels.flatten()
+        y_pred.extend(y_hat)
         y_true.extend(b_labels)
-        y_pred.extend(preds)
         sent_ids.extend(b_sent_ids)
 
     f1 = f1_score(y_true, y_pred, average='macro')

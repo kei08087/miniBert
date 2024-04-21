@@ -393,7 +393,7 @@ def multitask_testing(args):
 
     for epoch in range(args.epochs):
         model.train()
-
+        
         if args.max_data > -1:
             sst_train_len = len(sst_train_data)
             para_train_len = len(para_train_data)
@@ -522,7 +522,7 @@ def multitask_testing(args):
             batches+=1
         
         train_loss = train_loss/batches/3
-
+        
         sst_train_acc, *_ = model_eval_sst(sst_train_dataloader, model, device)
         sst_dev_acc, *_ = model_eval_sst(sst_dev_dataloader,model,device)
         para_train_acc, *_ = model_eval_para(para_train_dataloader,model,device)
